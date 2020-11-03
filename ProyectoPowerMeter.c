@@ -33,26 +33,6 @@ unsigned char buffer_data_http[255];
 unsigned short proc_post_tic = 0;
 float picoMinimoVoltaje = 0, picoMaximoVoltaje = 0, picoMinimoCorriente = 0, picoMaximoCorriente = 0;
 
-//
-#define PROTOCOL_INIT '['     //Caracter de inicio de protocolo
-#define PROTOCOL_INIT_2 '{'   //Caracter de inicio de protocolo
-#define PROTOCOL_COMILLAS '"' //Accion para fijar un valor en una salida
-#define PROTOCOL_MAXIMA 'M'   //Indicacion de que seguramente luego venga una P
-#define PROTOCOL_POTENCIA 'P' //Acompaña a la M. Indican Maxima Potencia.
-#define PROTOCOL_END '>'      //Caracter de fin de protocolo
-#define PROTOCOL_END_2 '>'    //Caracter de fin de protocolo
-
-//Definimos los estados de la recepcion
-enum
-{
-    RX_PROTOCOL_INIT,
-    RX_PROTOCOL_INIT_VERIF,
-    RX_PROTOCOL_ACCION,
-    RX_PROTOCOL_ACCION_VERIF,
-    RX_PROTOCOL_VALOR,
-    RX_PROTOCOL_END
-};
-
 /*****Definiciones para el timer del programa*****/
 unsigned char tiempo = 0, tiempo2 = 0;
 #define PROTOCOL_TIC_DEF (0.001)
@@ -84,37 +64,29 @@ void onCharReceived()
 
 int main()
 {
-    //(void)WiFi_init("TeleCentro-df39", "EDNJZ2NYYGN2");
+    (void)WiFi_init("TeleCentro-df39", "EDNJZ2NYYGN2");
 
     //system_ticker.attach(&system_ticker_cb, SYSTEM_TICKER_TIC_DEF);
 
     protocol_ticker.attach(&protocol_ticker_cb, 0.0001);
 
-    //Ejecutar onCharReceived por cada entrada por puerto
-    DBG.attach(&onCharReceived);
-
     DBG.printf("POWER METER - GRUPO 14 - KOVALOW MORTOLA MUTZ VILLAMEDIANA\r\n");
 
     while (true)
     {
-        //if (g == 1)
-        //{
-        //    DBG.printf("%d\r\n", VoltagePeak);
-        //    g = 0;
-        //}
 
         ReadCurrent();
         ReadVoltage();
         ShowInLCD(1);
-        //(void)WiFi_Step();
+        (void)WiFi_Step();
 
-        //proc_post();
+        proc_post();
 
         /**************** CIRCO ****************/
-        //if (socket_connected)
-        //    led_rojo = 0;
-        //else
-        //    led_rojo = 1;
+        if (socket_connected)
+            led_rojo = 0;
+        else
+            led_rojo = 1;
         /**************** CIRCO ****************/
         if (suma1 == 1 && suma2 == 1 && suma3 == 1 && suma4 == 1)
         {
@@ -197,6 +169,7 @@ void proc_post(void)
         break;
 
     case PROC_POST_SEND:
+        //mandar y con el que manda recibir alarmas, todo en 1
         sprintf(buff_send, "GET /php/getAlarms.php HTTP/1.1\r\nHost: whitenergy.online\r\nConnection: Close\r\n\r\n");
         res = sock_send((unsigned char *)buff_send,
                         strlen(buff_send), 25000);
@@ -216,6 +189,7 @@ void proc_post(void)
         break;
 
     case PROC_POST_RECV:
+        //cambiar el largo del dato, esta en [250] ahora
         res = sock_recv(buffer_data_http, 250, 500);
         DBG.printf("proc_posrt: -> [%d] PROC_POST_RECV:%d\r\n", __LINE__, res);
         if (res > 0)
@@ -225,6 +199,7 @@ void proc_post(void)
                 DBG.printf("proc_posrt: -> [%d] 200 OK\r\n", __LINE__);
             }
         }
+        //usar el strstr para obtener la informacion del json recibido.
         proc_post_tic = SYSTEM_TICKER_1_SEG;
         proc_post_step = PROC_POST_CLOSE;
         DBG.printf("proc_posrt: -> [%d] PROC_POST_CLOSE\r\n", __LINE__);
@@ -237,100 +212,6 @@ void proc_post(void)
         proc_post_step = PROC_POST_OPEN;
         //No es necesario cerrar, se lo estamos pidiendo al servidor
         //sock_close();
-        break;
-    }
-}
-
-void protocol_process_data_in(unsigned char data)
-{
-    static unsigned char estado_recepcion = 'RX_PROTOCOL_INIT';
-
-    //si se vencio el tiempo ponemos la recepcion al principio de todo
-    if (protocol_tic == 0)
-        estado_recepcion = RX_PROTOCOL_INIT;
-
-    //por cada byte recibido extiendo el timeout para la recepcion
-    protocol_tic = (PROTOCOL_TIMEOUT_RX / PROTOCOL_TIC_DEF); //El tiempo (0.5) div el tic (0.01)
-
-    switch (estado_recepcion)
-    {
-    case RX_PROTOCOL_INIT:
-        protocol_xor_calculated = 0; //Aca vamos a ir calculando el xor de lo que recibimos
-                                     //Siempre que estamos en el estado inicial la hacemos 0
-        if (data == PROTOCOL_INIT)
-        {
-            estado_recepcion = RX_PROTOCOL_INIT_VERIF;
-        }
-        else
-        {
-            //Si lo que recibimos en el estado de INIT no es el INIT nos quedamos
-            estado_recepcion = RX_PROTOCOL_INIT;
-        }
-        break;
-    case RX_PROTOCOL_INIT_VERIF:
-        if (data == PROTOCOL_INIT_2)
-        {
-            estado_recepcion = RX_PROTOCOL_ACCION;
-        }
-        else
-        {
-            //Si lo que recibimos en el estado de verificacion INIT no es el char de verif INIT volvemos a inicio
-            estado_recepcion = RX_PROTOCOL_INIT;
-        }
-        break;
-
-    case RX_PROTOCOL_ACCION:
-        if (data == PROTOCOL_MAXIMA)
-        {
-            estado_recepcion = RX_PROTOCOL_ACCION_VERIF;
-        }
-        else
-        {
-            //Si lo que recibimos en el estado de verificacion INIT no es el char de verif INIT volvemos a inicio
-            estado_recepcion = RX_PROTOCOL_INIT;
-        }
-        break;
-
-    case RX_PROTOCOL_ACCION_VERIF:
-        if (data == PROTOCOL_MAXIMA)
-        {
-            estado_recepcion = RX_PROTOCOL_VALOR;
-        }
-        else
-        {
-            //Si lo que recibimos en el estado de verificacion INIT no es el char de verif INIT volvemos a inicio
-            estado_recepcion = RX_PROTOCOL_INIT;
-        }
-        break;
-
-    case RX_PROTOCOL_VALOR:
-        if (data == PROTOCOL_END)
-        {
-            estado_recepcion = RX_PROTOCOL_INIT;
-            count = 0;
-            ValorAlarma = concat(first, second, thirst, fourth);
-            DBG.printf("%d", ValorAlarma);
-        }
-        else
-        {
-            if (count == 0)
-            {
-                first = (int)data;
-            }
-            else if (count == 1)
-            {
-                second = (int)data;
-            }
-            else if (count == 2)
-            {
-                thirst = (int)data;
-            }
-            else if (count == 3)
-            {
-                fourth = (int)data;
-            }
-            count++;
-        }
         break;
     }
 }
@@ -528,26 +409,4 @@ void protocol_ticker_cb()
     {
         tiempo2++;
     }
-}
-
-// Function to concatenate
-// two integers into one
-int concat(int a, int b, int c, int d)
-{
-
-    // Convert both the integers to string
-    string s1 = to_string(a);
-    string s2 = to_string(b);
-    string s3 = to_string(c);
-    string s4 = to_string(d);
-
-    // Concatenate both strings
-    string s = s1 + s2 + s3 + s4;
-
-    // Convert the concatenated string
-    // to integer
-    int e = stoi(s);
-
-    // return the formed integer
-    return e;
 }
